@@ -1441,6 +1441,109 @@ function updateFolderOrder(folderId, newIndex, newParentFolderId) {
   }
 }
 
+function reorderLinksBulk(ordering) {
+  try {
+    if (!Array.isArray(ordering)) {
+      return {
+        success: false,
+        error: '並び順データが不正です'
+      };
+    }
+
+    const userProperties = PropertiesService.getUserProperties();
+    const linksJson = userProperties.getProperty('customLinks');
+    if (!linksJson) {
+      return {
+        success: true,
+        links: []
+      };
+    }
+
+    const links = JSON.parse(linksJson);
+
+    if (ordering.length !== links.length) {
+      return {
+        success: false,
+        error: 'リンク数が一致しません。最新の状態を再読み込みしてください。'
+      };
+    }
+
+    const normalized = [];
+    const seen = {};
+    ordering.forEach(function(entry) {
+      if (!entry) return;
+      const rawId = entry.id !== undefined && entry.id !== null ? String(entry.id) : '';
+      if (!rawId || seen[rawId]) {
+        return;
+      }
+      const folderValue = entry.folderId !== undefined && entry.folderId !== null && String(entry.folderId).trim() !== ''
+        ? String(entry.folderId)
+        : null;
+      normalized.push({
+        id: rawId,
+        folderId: folderValue
+      });
+      seen[rawId] = true;
+    });
+
+    if (normalized.length !== links.length) {
+      return {
+        success: false,
+        error: 'リンク情報の一部が不足しています。最新の状態を再読み込みしてください。'
+      };
+    }
+
+    const linkMap = {};
+    const originalIndexMap = {};
+    links.forEach(function(link, index) {
+      linkMap[link.id] = link;
+      originalIndexMap[link.id] = index;
+    });
+
+    const now = new Date().getTime();
+    const reordered = [];
+
+    normalized.forEach(function(item, index) {
+      const link = linkMap[item.id];
+      if (!link) {
+        return;
+      }
+      const previousFolder = link.folderId || null;
+      const nextFolder = item.folderId || null;
+      if (previousFolder !== nextFolder) {
+        link.folderId = nextFolder;
+        link.updatedAt = now;
+      } else {
+        const originalIndex = originalIndexMap[item.id];
+        if (originalIndex !== index) {
+          link.updatedAt = now;
+        }
+      }
+      reordered.push(link);
+      delete linkMap[item.id];
+    });
+
+    if (reordered.length !== links.length) {
+      Object.keys(linkMap).forEach(function(id) {
+        reordered.push(linkMap[id]);
+      });
+    }
+
+    userProperties.setProperty('customLinks', JSON.stringify(reordered));
+
+    return {
+      success: true,
+      links: reordered
+    };
+  } catch (error) {
+    Logger.log('Error reordering links bulk: ' + error.toString());
+    return {
+      success: false,
+      error: error.toString()
+    };
+  }
+}
+
 function moveLink(linkId, direction, folderId) {
   try {
     const userProperties = PropertiesService.getUserProperties();
